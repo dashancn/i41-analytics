@@ -41,6 +41,20 @@ test('worker accepts valid CORS request and writes fixed columns', async () => {
   });
 });
 
+test('root URL returns a readable service page instead of 404', async () => {
+  const env = {
+    ASSETS: {
+      fetch: async request => new Response(
+        request.url.endsWith('/') ? '<h1>i41 匿名统计服务</h1><p>服务运行正常</p>' : 'asset',
+        { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } },
+      ),
+    },
+  };
+  const response = await worker.fetch(new Request('https://stats.i41.cn/'), env);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /i41 匿名统计服务/);
+});
+
 test('worker rejects disallowed origins and oversized bodies', async () => {
   const env = { EVENTS: { writeDataPoint() { throw new Error('must not write'); } } };
   const badOrigin = await worker.fetch(new Request('https://stats.i41.cn/event', {
