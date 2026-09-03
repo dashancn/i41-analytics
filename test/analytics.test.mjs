@@ -132,6 +132,20 @@ test('dashboard login rejects wrong password and issues a secure cookie for 0701
   assert.match(login.headers.get('set-cookie'), /i41_stats_session=.*HttpOnly.*Secure.*SameSite=Strict/);
 });
 
+test('logout immediately expires the seven-day dashboard session', async () => {
+  const response = await worker.fetch(new Request('https://stats.i41.cn/logout', {
+    method: 'POST',
+    headers: { cookie: 'i41_stats_session=active' },
+  }), {});
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get('location'), '/login');
+  const cookie = response.headers.get('set-cookie');
+  assert.match(cookie, /i41_stats_session=/);
+  assert.match(cookie, /Max-Age=0/);
+  assert.match(cookie, /Expires=Thu, 01 Jan 1970 00:00:00 GMT/);
+  assert.match(cookie, /HttpOnly.*Secure.*SameSite=Strict/);
+});
+
 test('dashboard API is private when authentication is configured', async () => {
   const response = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d'), {
     DASHBOARD_PASSWORD: '0701', SESSION_SECRET: 'session-secret', ACCOUNT_ID: 'account', ANALYTICS_API_TOKEN: 'token',

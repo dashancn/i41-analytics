@@ -14,6 +14,8 @@ test('public root renders the aggregate analytics dashboard', async () => {
   assert.match(html, /不收集文件、用户输入或永久身份标识/);
   assert.match(html, /src="\/dashboard\.js"/);
   assert.doesNotMatch(html, /writing-mode/);
+  assert.match(html, /<form[^>]*method="post"[^>]*action="\/logout"/);
+  assert.match(html, />退出<\/button>/);
 });
 
 test('dashboard client loads aggregates and does not contain credentials', async () => {

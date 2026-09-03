@@ -112,6 +112,17 @@ async function login(request, env) {
   });
 }
 
+function logout() {
+  return new Response(null, {
+    status: 303,
+    headers: {
+      Location: '/login',
+      'Set-Cookie': `${SESSION_COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Strict`,
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
 async function privateAsset(request, env, path) {
   const assetUrl = new URL(path, request.url);
   const asset = await env.ASSETS.fetch(new Request(assetUrl, request));
@@ -172,6 +183,7 @@ export default {
     if (url.pathname === '/health' && request.method === 'GET') return new Response('ok', { headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname === '/login' && request.method === 'POST') return login(request, env);
     if (url.pathname === '/login' && request.method === 'GET') return privateAsset(request, env, '/login-page.txt');
+    if (url.pathname === '/logout' && request.method === 'POST') return logout();
     if (url.pathname === '/api/dashboard' && request.method === 'GET') {
       if (!await isAuthenticated(request, env)) return Response.json({ error: 'unauthorized' }, { status: 401 });
       return dashboard(request, env);
