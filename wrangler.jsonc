@@ -4,6 +4,9 @@
   "main": "src/index.js",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
+  "vars": {
+    "ACCOUNT_ID": "7da00748612c62e554e773010b3fed02"
+  },
   "assets": {
     "directory": "public",
     "binding": "ASSETS",

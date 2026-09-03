@@ -55,6 +55,43 @@ test('root URL returns a readable service page instead of 404', async () => {
   assert.match(await response.text(), /i41 匿名统计服务/);
 });
 
+test('dashboard API returns aggregate analytics without exposing its token', async () => {
+  const originalFetch = globalThis.fetch;
+  const queries = [];
+  globalThis.fetch = async (_url, options) => {
+    queries.push({ body: options.body, authorization: options.headers.Authorization });
+    const rows = options.body.includes('GROUP BY site')
+      ? [{ site: 'pdf', events: '3' }]
+      : options.body.includes('GROUP BY day')
+        ? [{ day: '2026-09-03', events: '3' }]
+        : options.body.includes('utm_content')
+          ? [{ placement: 'homepage_tools', events: '2' }]
+          : options.body.includes('blob5 AS placement')
+            ? [{ event: 'primary_product_click', placement: 'promo_banner', events: '1' }]
+            : [{ event: 'page_view', events: '3' }];
+    return Response.json({ data: rows });
+  };
+  try {
+    const response = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d'), {
+      ACCOUNT_ID: 'account', ANALYTICS_API_TOKEN: 'secret-token', ASSETS: { fetch: () => new Response('asset') },
+    });
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.range, '7d');
+    assert.deepEqual(data.sites, [{ site: 'pdf', events: 3 }]);
+    assert.equal(JSON.stringify(data).includes('secret-token'), false);
+    assert.ok(queries.length >= 5);
+    assert.ok(queries.every(query => query.authorization === 'Bearer secret-token'));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('dashboard API rejects unsupported ranges and reports missing server secret', async () => {
+  const unsupported = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=365d'), {});
+  assert.equal(unsupported.status, 400);
+  const missing = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d'), {});
+  assert.equal(missing.status, 503);
+});
+
 test('worker rejects disallowed origins and oversized bodies', async () => {
   const env = { EVENTS: { writeDataPoint() { throw new Error('must not write'); } } };
   const badOrigin = await worker.fetch(new Request('https://stats.i41.cn/event', {

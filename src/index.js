@@ -58,11 +58,55 @@ function response(status, origin, text = '') {
   return new Response(status === 204 ? null : text, { status, headers: cors(origin || 'null') });
 }
 
+const RANGES = { '1d': 1, '7d': 7, '30d': 30 };
+
+function numericRows(rows = []) {
+  return rows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [
+    key,
+    key === 'events' ? Number(value) : value,
+  ])));
+}
+
+async function queryAnalytics(env, sql) {
+  const api = `https://api.cloudflare.com/client/v4/accounts/${env.ACCOUNT_ID}/analytics_engine/sql`;
+  const result = await fetch(api, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.ANALYTICS_API_TOKEN}` },
+    body: `${sql} FORMAT JSON`,
+  });
+  if (!result.ok) throw new Error(`analytics query failed: ${result.status}`);
+  return numericRows((await result.json()).data);
+}
+
+async function dashboard(request, env) {
+  const range = new URL(request.url).searchParams.get('range') || '7d';
+  const days = RANGES[range];
+  if (!days) return Response.json({ error: 'unsupported range' }, { status: 400 });
+  if (!env.ACCOUNT_ID || !env.ANALYTICS_API_TOKEN) return Response.json({ error: 'dashboard query is not configured' }, { status: 503 });
+  const where = `timestamp >= NOW() - INTERVAL '${days}' DAY`;
+  try {
+    const [summary, sites, trend, sources, outbound] = await Promise.all([
+      queryAnalytics(env, `SELECT blob2 AS event, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} GROUP BY event ORDER BY events DESC`),
+      queryAnalytics(env, `SELECT blob1 AS site, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY site ORDER BY events DESC`),
+      queryAnalytics(env, `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS day, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY day ORDER BY day`),
+      queryAnalytics(env, `SELECT blob9 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' AND blob9 != '' GROUP BY placement ORDER BY events DESC`),
+      queryAnalytics(env, `SELECT blob2 AS event, blob4 AS target, blob5 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 != 'page_view' GROUP BY event, target, placement ORDER BY events DESC`),
+    ]);
+    return Response.json({ range, generatedAt: new Date().toISOString(), summary, sites, trend, sources, outbound }, {
+      headers: { 'Cache-Control': 'public, max-age=60', 'X-Content-Type-Options': 'nosniff' },
+    });
+  } catch (error) {
+    console.error('dashboard query failed', error);
+    return Response.json({ error: 'analytics query failed' }, { status: 502 });
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const origin = request.headers.get('Origin') || '';
     if (url.pathname === '/health' && request.method === 'GET') return new Response('ok', { headers: { 'Cache-Control': 'no-store' } });
+    if (url.pathname === '/api/dashboard' && request.method === 'GET') return dashboard(request, env);
     if (url.pathname !== '/event') {
       if (env.ASSETS) return env.ASSETS.fetch(request);
       return new Response('not found', { status: 404 });

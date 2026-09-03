@@ -4,11 +4,22 @@ import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../public/analytics.js', import.meta.url), 'utf8');
 
-test('public root explains that the collector is running', async () => {
+test('public root renders the aggregate analytics dashboard', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
-  assert.match(html, /i41 匿名统计服务/);
-  assert.match(html, /服务运行正常/);
+  assert.match(html, /i41 工具生态数据/);
+  assert.match(html, /近 7 天/);
+  assert.match(html, /站点访问/);
+  assert.match(html, /i方案入口来源/);
+  assert.match(html, /跨站导流/);
   assert.match(html, /不收集文件、用户输入或永久身份标识/);
+  assert.match(html, /src="\/dashboard\.js"/);
+});
+
+test('dashboard client loads aggregates and does not contain credentials', async () => {
+  const dashboard = await readFile(new URL('../public/dashboard.js', import.meta.url), 'utf8');
+  assert.match(dashboard, /\/api\/dashboard\?range=/);
+  assert.match(dashboard, /setInterval/);
+  assert.doesNotMatch(dashboard, /Bearer|ANALYTICS_API_TOKEN|cfoat_|secret/i);
 });
 
 test('client sends only the three approved event names', () => {
