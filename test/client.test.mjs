@@ -13,6 +13,7 @@ test('public root renders the aggregate analytics dashboard', async () => {
   assert.match(html, /跨站导流/);
   assert.match(html, /不收集文件、用户输入或永久身份标识/);
   assert.match(html, /src="\/dashboard\.js"/);
+  assert.doesNotMatch(html, /writing-mode/);
 });
 
 test('dashboard client loads aggregates and does not contain credentials', async () => {
@@ -20,6 +21,15 @@ test('dashboard client loads aggregates and does not contain credentials', async
   assert.match(dashboard, /\/api\/dashboard\?range=/);
   assert.match(dashboard, /setInterval/);
   assert.doesNotMatch(dashboard, /Bearer|ANALYTICS_API_TOKEN|cfoat_|secret/i);
+  assert.match(dashboard, /row\.site/);
+  assert.match(dashboard, /来源/);
+});
+
+test('login page asks for a password without embedding it', async () => {
+  const html = await readFile(new URL('../public/login.html', import.meta.url), 'utf8');
+  assert.match(html, /统计面板登录/);
+  assert.match(html, /type="password"/);
+  assert.doesNotMatch(html, /0701/);
 });
 
 test('client sends only the three approved event names', () => {

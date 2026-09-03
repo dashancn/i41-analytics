@@ -59,6 +59,63 @@ function response(status, origin, text = '') {
 }
 
 const RANGES = { '1d': 1, '7d': 7, '30d': 30 };
+const SESSION_COOKIE = 'i41_stats_session';
+const SESSION_TTL = 7 * 24 * 60 * 60;
+
+function bytes(value) {
+  return new TextEncoder().encode(value);
+}
+
+function safeEqual(left, right) {
+  const a = bytes(String(left));
+  const b = bytes(String(right));
+  if (a.length !== b.length) return false;
+  let difference = 0;
+  for (let index = 0; index < a.length; index++) difference |= a[index] ^ b[index];
+  return difference === 0;
+}
+
+async function sign(value, secret) {
+  const key = await crypto.subtle.importKey('raw', bytes(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = new Uint8Array(await crypto.subtle.sign('HMAC', key, bytes(value)));
+  return Array.from(signature, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function sessionValue(secret, now = Math.floor(Date.now() / 1000)) {
+  const expires = now + SESSION_TTL;
+  return `${expires}.${await sign(String(expires), secret)}`;
+}
+
+async function isAuthenticated(request, env) {
+  if (!env.DASHBOARD_PASSWORD || !env.SESSION_SECRET) return true;
+  const cookie = request.headers.get('Cookie') || '';
+  const match = cookie.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
+  if (!match) return false;
+  const [expiresText, signature] = match[1].split('.');
+  const expires = Number(expiresText);
+  if (!Number.isInteger(expires) || expires < Math.floor(Date.now() / 1000) || !signature) return false;
+  return safeEqual(signature, await sign(expiresText, env.SESSION_SECRET));
+}
+
+async function login(request, env) {
+  if (!env.DASHBOARD_PASSWORD || !env.SESSION_SECRET) return new Response('dashboard auth is not configured', { status: 503 });
+  const form = await request.formData();
+  if (!safeEqual(form.get('password') || '', env.DASHBOARD_PASSWORD)) return new Response('密码错误', { status: 401 });
+  const value = await sessionValue(env.SESSION_SECRET);
+  return new Response(null, {
+    status: 303,
+    headers: {
+      Location: '/',
+      'Set-Cookie': `${SESSION_COOKIE}=${value}; Path=/; Max-Age=${SESSION_TTL}; HttpOnly; Secure; SameSite=Strict`,
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
+async function privateAsset(request, env, path) {
+  const assetUrl = new URL(path, request.url);
+  return env.ASSETS.fetch(new Request(assetUrl, request));
+}
 
 function numericRows(rows = []) {
   return rows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [
@@ -90,7 +147,7 @@ async function dashboard(request, env) {
       queryAnalytics(env, `SELECT blob1 AS site, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY site ORDER BY events DESC`),
       queryAnalytics(env, `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS day, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY day ORDER BY day`),
       queryAnalytics(env, `SELECT blob9 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' AND blob9 != '' GROUP BY placement ORDER BY events DESC`),
-      queryAnalytics(env, `SELECT blob2 AS event, blob4 AS target, blob5 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 != 'page_view' GROUP BY event, target, placement ORDER BY events DESC`),
+      queryAnalytics(env, `SELECT blob1 AS site, blob2 AS event, blob4 AS target, blob5 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 != 'page_view' GROUP BY site, event, target, placement ORDER BY events DESC`),
     ]);
     return Response.json({ range, generatedAt: new Date().toISOString(), summary, sites, trend, sources, outbound }, {
       headers: { 'Cache-Control': 'public, max-age=60', 'X-Content-Type-Options': 'nosniff' },
@@ -106,7 +163,16 @@ export default {
     const url = new URL(request.url);
     const origin = request.headers.get('Origin') || '';
     if (url.pathname === '/health' && request.method === 'GET') return new Response('ok', { headers: { 'Cache-Control': 'no-store' } });
-    if (url.pathname === '/api/dashboard' && request.method === 'GET') return dashboard(request, env);
+    if (url.pathname === '/login' && request.method === 'POST') return login(request, env);
+    if (url.pathname === '/login' && request.method === 'GET') return privateAsset(request, env, '/login.html');
+    if (url.pathname === '/api/dashboard' && request.method === 'GET') {
+      if (!await isAuthenticated(request, env)) return Response.json({ error: 'unauthorized' }, { status: 401 });
+      return dashboard(request, env);
+    }
+    if ((url.pathname === '/' || url.pathname === '/index.html' || url.pathname === '/dashboard.js') && !await isAuthenticated(request, env)) {
+      if (url.pathname === '/dashboard.js') return new Response('unauthorized', { status: 401 });
+      return privateAsset(request, env, '/login.html');
+    }
     if (url.pathname !== '/event') {
       if (env.ASSETS) {
         const asset = await env.ASSETS.fetch(request);

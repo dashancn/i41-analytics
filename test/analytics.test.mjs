@@ -52,18 +52,20 @@ test('event endpoint accepts CORS-safelisted text/plain beacons', async () => {
   assert.equal(writes.length, 1);
 });
 
-test('root URL returns a readable service page instead of 404', async () => {
+test('root URL requires dashboard login', async () => {
   const env = {
+    DASHBOARD_PASSWORD: '0701',
+    SESSION_SECRET: 'session-secret',
     ASSETS: {
       fetch: async request => new Response(
-        request.url.endsWith('/') ? '<h1>i41 匿名统计服务</h1><p>服务运行正常</p>' : 'asset',
+        request.url.endsWith('login.html') ? '<h1>统计面板登录</h1>' : '<h1>i41 工具生态数据</h1>',
         { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } },
       ),
     },
   };
   const response = await worker.fetch(new Request('https://stats.i41.cn/'), env);
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /i41 匿名统计服务/);
+  assert.match(await response.text(), /统计面板登录/);
 });
 
 test('public analytics script supports module CORS and cross-origin isolation', async () => {
@@ -92,7 +94,7 @@ test('dashboard API returns aggregate analytics without exposing its token', asy
         : options.body.includes('utm_content')
           ? [{ placement: 'homepage_tools', events: '2' }]
           : options.body.includes('blob5 AS placement')
-            ? [{ event: 'primary_product_click', placement: 'promo_banner', events: '1' }]
+            ? [{ site: 'pdf', event: 'primary_product_click', placement: 'promo_banner', events: '1' }]
             : [{ event: 'page_view', events: '3' }];
     return Response.json({ data: rows });
   };
@@ -115,6 +117,26 @@ test('dashboard API rejects unsupported ranges and reports missing server secret
   assert.equal(unsupported.status, 400);
   const missing = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d'), {});
   assert.equal(missing.status, 503);
+});
+
+test('dashboard login rejects wrong password and issues a secure cookie for 0701', async () => {
+  const env = { DASHBOARD_PASSWORD: '0701', SESSION_SECRET: 'session-secret' };
+  const wrong = await worker.fetch(new Request('https://stats.i41.cn/login', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'password=wrong',
+  }), env);
+  assert.equal(wrong.status, 401);
+  const login = await worker.fetch(new Request('https://stats.i41.cn/login', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'password=0701',
+  }), env);
+  assert.equal(login.status, 303);
+  assert.match(login.headers.get('set-cookie'), /i41_stats_session=.*HttpOnly.*Secure.*SameSite=Strict/);
+});
+
+test('dashboard API is private when authentication is configured', async () => {
+  const response = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d'), {
+    DASHBOARD_PASSWORD: '0701', SESSION_SECRET: 'session-secret', ACCOUNT_ID: 'account', ANALYTICS_API_TOKEN: 'token',
+  });
+  assert.equal(response.status, 401);
 });
 
 test('worker rejects disallowed origins and oversized bodies', async () => {
