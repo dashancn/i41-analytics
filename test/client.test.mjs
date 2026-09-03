@@ -26,7 +26,7 @@ test('dashboard client loads aggregates and does not contain credentials', async
 });
 
 test('login page asks for a password without embedding it', async () => {
-  const html = await readFile(new URL('../public/login.html', import.meta.url), 'utf8');
+  const html = await readFile(new URL('../public/login-page.txt', import.meta.url), 'utf8');
   assert.match(html, /统计面板登录/);
   assert.match(html, /type="password"/);
   assert.doesNotMatch(html, /0701/);

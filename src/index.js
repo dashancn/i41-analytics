@@ -114,7 +114,14 @@ async function login(request, env) {
 
 async function privateAsset(request, env, path) {
   const assetUrl = new URL(path, request.url);
-  return env.ASSETS.fetch(new Request(assetUrl, request));
+  const asset = await env.ASSETS.fetch(new Request(assetUrl, request));
+  if (path === '/login-page.txt') {
+    const headers = new Headers(asset.headers);
+    headers.set('Content-Type', 'text/html; charset=utf-8');
+    headers.set('Cache-Control', 'no-store');
+    return new Response(asset.body, { status: asset.status, headers });
+  }
+  return asset;
 }
 
 function numericRows(rows = []) {
@@ -164,14 +171,14 @@ export default {
     const origin = request.headers.get('Origin') || '';
     if (url.pathname === '/health' && request.method === 'GET') return new Response('ok', { headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname === '/login' && request.method === 'POST') return login(request, env);
-    if (url.pathname === '/login' && request.method === 'GET') return privateAsset(request, env, '/login.html');
+    if (url.pathname === '/login' && request.method === 'GET') return privateAsset(request, env, '/login-page.txt');
     if (url.pathname === '/api/dashboard' && request.method === 'GET') {
       if (!await isAuthenticated(request, env)) return Response.json({ error: 'unauthorized' }, { status: 401 });
       return dashboard(request, env);
     }
     if ((url.pathname === '/' || url.pathname === '/index.html' || url.pathname === '/dashboard.js') && !await isAuthenticated(request, env)) {
       if (url.pathname === '/dashboard.js') return new Response('unauthorized', { status: 401 });
-      return privateAsset(request, env, '/login.html');
+      return privateAsset(request, env, '/login-page.txt');
     }
     if (url.pathname !== '/event') {
       if (env.ASSETS) {

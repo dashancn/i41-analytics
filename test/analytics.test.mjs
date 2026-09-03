@@ -58,7 +58,7 @@ test('root URL requires dashboard login', async () => {
     SESSION_SECRET: 'session-secret',
     ASSETS: {
       fetch: async request => new Response(
-        request.url.endsWith('login.html') ? '<h1>统计面板登录</h1>' : '<h1>i41 工具生态数据</h1>',
+        request.url.endsWith('login-page.txt') ? '<h1>统计面板登录</h1>' : '<h1>i41 工具生态数据</h1>',
         { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } },
       ),
     },
