@@ -108,7 +108,17 @@ export default {
     if (url.pathname === '/health' && request.method === 'GET') return new Response('ok', { headers: { 'Cache-Control': 'no-store' } });
     if (url.pathname === '/api/dashboard' && request.method === 'GET') return dashboard(request, env);
     if (url.pathname !== '/event') {
-      if (env.ASSETS) return env.ASSETS.fetch(request);
+      if (env.ASSETS) {
+        const asset = await env.ASSETS.fetch(request);
+        if (url.pathname === '/analytics.js') {
+          const headers = new Headers(asset.headers);
+          headers.set('Access-Control-Allow-Origin', '*');
+          headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
+          headers.set('X-Content-Type-Options', 'nosniff');
+          return new Response(asset.body, { status: asset.status, headers });
+        }
+        return asset;
+      }
       return new Response('not found', { status: 404 });
     }
     if (!ORIGINS.has(origin)) return response(403, 'null', 'forbidden origin');

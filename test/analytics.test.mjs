@@ -66,6 +66,20 @@ test('root URL returns a readable service page instead of 404', async () => {
   assert.match(await response.text(), /i41 匿名统计服务/);
 });
 
+test('public analytics script supports module CORS and cross-origin isolation', async () => {
+  const env = {
+    ASSETS: {
+      fetch: async () => new Response('console.log("analytics")', {
+        headers: { 'content-type': 'text/javascript' },
+      }),
+    },
+  };
+  const response = await worker.fetch(new Request('https://stats.i41.cn/analytics.js'), env);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'), '*');
+  assert.equal(response.headers.get('Cross-Origin-Resource-Policy'), 'cross-origin');
+});
+
 test('dashboard API returns aggregate analytics without exposing its token', async () => {
   const originalFetch = globalThis.fetch;
   const queries = [];
