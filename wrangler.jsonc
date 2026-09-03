@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "i41-anonymous-analytics",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "routes": [
+    { "pattern": "stats.i41.cn", "custom_domain": true }
+  ],
+  "analytics_engine_datasets": [
+    { "binding": "EVENTS", "dataset": "i41_tool_events" }
+  ],
+  "observability": { "enabled": false }
+}
