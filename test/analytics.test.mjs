@@ -41,6 +41,17 @@ test('worker accepts valid CORS request and writes fixed columns', async () => {
   });
 });
 
+test('event endpoint accepts CORS-safelisted text/plain beacons', async () => {
+  const writes = [];
+  const response = await worker.fetch(new Request('https://stats.i41.cn/event', {
+    method: 'POST',
+    headers: { 'content-type': 'text/plain;charset=UTF-8', origin: 'https://watermark.i41.cn' },
+    body: JSON.stringify({ site: 'watermark', event: 'page_view', path: '/' }),
+  }), { EVENTS: { writeDataPoint: point => writes.push(point) } });
+  assert.equal(response.status, 204);
+  assert.equal(writes.length, 1);
+});
+
 test('root URL returns a readable service page instead of 404', async () => {
   const env = {
     ASSETS: {

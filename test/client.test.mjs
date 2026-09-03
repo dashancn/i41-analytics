@@ -27,9 +27,11 @@ test('client sends only the three approved event names', () => {
   for (const forbidden of ['filename','password','clipboard','userAgent','cookie','localStorage']) assert.ok(!source.includes(forbidden));
 });
 
-test('client is best effort and preserves navigation', () => {
+test('client is best effort, avoids CORS preflight, and preserves navigation', () => {
   assert.match(source, /navigator\.sendBeacon/);
   assert.match(source, /keepalive: true/);
+  assert.match(source, /Content-Type': 'text\/plain;charset=UTF-8'/);
+  assert.doesNotMatch(source, /new Blob/);
   assert.doesNotMatch(source, /preventDefault/);
 });
 

@@ -114,7 +114,8 @@ export default {
     if (!ORIGINS.has(origin)) return response(403, 'null', 'forbidden origin');
     if (request.method === 'OPTIONS') return response(204, origin);
     if (request.method !== 'POST') return response(405, origin, 'method not allowed');
-    if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) return response(415, origin, 'json required');
+    const contentType = request.headers.get('content-type')?.toLowerCase() || '';
+    if (!contentType.startsWith('application/json') && !contentType.startsWith('text/plain')) return response(415, origin, 'json required');
     if (Number(request.headers.get('content-length') || 0) > 4096) return response(413, origin, 'too large');
     const raw = await request.text();
     if (raw.length > 4096) return response(413, origin, 'too large');

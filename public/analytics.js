@@ -20,11 +20,8 @@ function attribution() {
 
 function send(event) {
   const body = JSON.stringify(event);
-  if (navigator.sendBeacon) {
-    navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' }));
-    return;
-  }
-  fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
+  if (navigator.sendBeacon && navigator.sendBeacon(ENDPOINT, body)) return;
+  fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body, keepalive: true }).catch(() => {});
 }
 
 function siteFromHost(hostname) {
