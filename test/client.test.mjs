@@ -23,6 +23,9 @@ test('dashboard client loads aggregates and does not contain credentials', async
   assert.doesNotMatch(dashboard, /Bearer|ANALYTICS_API_TOKEN|cfoat_|secret/i);
   assert.match(dashboard, /row\.site/);
   assert.match(dashboard, /来源/);
+  assert.match(dashboard, /primary_product_click/);
+  assert.match(dashboard, /localeCompare\(right\.site/);
+  assert.match(dashboard, /sortOutbound\(data\.outbound\)/);
 });
 
 test('login page asks for a password without embedding it', async () => {
