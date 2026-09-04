@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { normalizeEvent } from '../src/index.js';
+import worker, { normalizeEvent, rangeStartUtc } from '../src/index.js';
 
 const valid = {
   site: 'pdf', event: 'page_view', path: '/',
@@ -10,6 +10,13 @@ const valid = {
 
 test('accepts an allowlisted anonymous event', () => {
   assert.deepEqual(normalizeEvent(valid), valid);
+});
+
+test('dashboard ranges use Asia Shanghai calendar boundaries', () => {
+  const now = new Date('2026-09-04T03:38:00.000Z');
+  assert.equal(rangeStartUtc('1d', now), '2026-09-03 16:00:00');
+  assert.equal(rangeStartUtc('7d', now), '2026-08-28 16:00:00');
+  assert.equal(rangeStartUtc('30d', now), '2026-08-05 16:00:00');
 });
 
 test('rejects unknown fields and sensitive fields', () => {
@@ -109,6 +116,8 @@ test('dashboard API returns aggregate analytics without exposing its token', asy
     assert.equal(JSON.stringify(data).includes('secret-token'), false);
     assert.ok(queries.length >= 5);
     assert.ok(queries.every(query => query.authorization === 'Bearer secret-token'));
+    assert.ok(queries.every(query => query.body.includes("timestamp >= toDateTime('")));
+    assert.ok(queries.some(query => query.body.includes("formatDateTime(timestamp, '%Y-%m-%d', 'Asia/Shanghai')")));
   } finally { globalThis.fetch = originalFetch; }
 });
 

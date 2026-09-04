@@ -59,6 +59,18 @@ function response(status, origin, text = '') {
 }
 
 const RANGES = { '1d': 1, '7d': 7, '30d': 30 };
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+export function rangeStartUtc(range, now = new Date()) {
+  const days = RANGES[range];
+  if (!days) return null;
+  const shanghaiNow = new Date(now.getTime() + SHANGHAI_OFFSET_MS);
+  const startShanghaiAsUtc = Date.UTC(
+    shanghaiNow.getUTCFullYear(), shanghaiNow.getUTCMonth(), shanghaiNow.getUTCDate() - (days - 1),
+  );
+  return new Date(startShanghaiAsUtc - SHANGHAI_OFFSET_MS).toISOString().slice(0, 19).replace('T', ' ');
+}
+
 const SESSION_COOKIE = 'i41_stats_session';
 const SESSION_TTL = 7 * 24 * 60 * 60;
 
@@ -155,15 +167,15 @@ async function queryAnalytics(env, sql) {
 
 async function dashboard(request, env) {
   const range = new URL(request.url).searchParams.get('range') || '7d';
-  const days = RANGES[range];
-  if (!days) return Response.json({ error: 'unsupported range' }, { status: 400 });
+  const start = rangeStartUtc(range);
+  if (!start) return Response.json({ error: 'unsupported range' }, { status: 400 });
   if (!env.ACCOUNT_ID || !env.ANALYTICS_API_TOKEN) return Response.json({ error: 'dashboard query is not configured' }, { status: 503 });
-  const where = `timestamp >= NOW() - INTERVAL '${days}' DAY`;
+  const where = `timestamp >= toDateTime('${start}', 'Etc/UTC')`;
   try {
     const [summary, sites, trend, sources, outbound] = await Promise.all([
       queryAnalytics(env, `SELECT blob2 AS event, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} GROUP BY event ORDER BY events DESC`),
       queryAnalytics(env, `SELECT blob1 AS site, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY site ORDER BY events DESC`),
-      queryAnalytics(env, `SELECT formatDateTime(timestamp, '%Y-%m-%d') AS day, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY day ORDER BY day`),
+      queryAnalytics(env, `SELECT formatDateTime(timestamp, '%Y-%m-%d', 'Asia/Shanghai') AS day, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY day ORDER BY day`),
       queryAnalytics(env, `SELECT blob9 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' AND blob9 != '' GROUP BY placement ORDER BY events DESC`),
       queryAnalytics(env, `SELECT blob1 AS site, blob2 AS event, blob4 AS target, blob5 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 != 'page_view' GROUP BY site, event, target, placement ORDER BY events DESC`),
     ]);
