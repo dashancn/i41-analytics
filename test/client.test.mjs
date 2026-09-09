@@ -4,6 +4,14 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const source = await readFile(new URL('../public/analytics.js', import.meta.url), 'utf8');
+const dashboardSource = await readFile(new URL('../public/dashboard.js', import.meta.url), 'utf8');
+
+function dashboardRouteLabel(row) {
+  const context = {};
+  const withoutInit = dashboardSource.replace(/document\.querySelectorAll[\s\S]*$/, '');
+  vm.runInNewContext(`${withoutInit}\nthis.result = routeLabel(${JSON.stringify(row)});`, context);
+  return context.result;
+}
 
 function cleanPathFor(location) {
   const context = { location, URLSearchParams, URL, navigator: {}, fetch() {}, document: {} };
@@ -11,7 +19,7 @@ function cleanPathFor(location) {
   return context.result;
 }
 
-function pageViewsFor(location, hashes) {
+function pageTrackingFor(location, hashes, site = 'pdf') {
   const listeners = new Map();
   const events = [];
   const context = {
@@ -21,7 +29,7 @@ function pageViewsFor(location, hashes) {
     navigator: { sendBeacon(_url, body) { events.push(JSON.parse(body)); return true; } },
     fetch() {},
     document: {
-      documentElement: { dataset: { i41Site: 'pdf' } },
+      documentElement: { dataset: { i41Site: site } },
       addEventListener() {},
     },
     addEventListener(name, handler) { listeners.set(name, handler); },
@@ -31,7 +39,10 @@ function pageViewsFor(location, hashes) {
     location.hash = hash;
     listeners.get('hashchange')?.();
   }
-  return events.filter(event => event.event === 'page_view');
+  return {
+    views: events.filter(event => event.event === 'page_view'),
+    hasHashchangeListener: listeners.has('hashchange'),
+  };
 }
 
 test('public root renders the aggregate analytics dashboard', async () => {
@@ -69,6 +80,21 @@ test('dashboard client loads aggregates and does not contain credentials', async
   }
 });
 
+test('dashboard labels known site roots and keeps readable unknown-route fallback', () => {
+  const roots = {
+    tools: '开发者工具',
+    idphoto: '证件照',
+    watermark: '证件水印',
+    clip: '临时剪贴板',
+    imgzip: '图片压缩',
+    pdf: 'PDF 工具',
+  };
+  for (const [site, expected] of Object.entries(roots)) {
+    assert.equal(dashboardRouteLabel({ site, path: '/' }), expected);
+  }
+  assert.equal(dashboardRouteLabel({ site: 'tools', path: '/json-format' }), '未知工具（开发者工具 /json-format）');
+});
+
 test('dashboard has a tool visits panel and all six site filters', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   assert.match(html, /工具访问/);
@@ -104,24 +130,36 @@ test('client recognizes all six canonical tool hosts', () => {
 });
 
 test('client normalizes PDF SPA hash routes without query data', () => {
-  assert.equal(cleanPathFor({ pathname: '/', hash: '#/invoice-nup?invoice=secret', search: '?utm_source=ifangan' }), '/invoice-nup');
-  assert.equal(cleanPathFor({ pathname: '/', hash: '#/merge-pdf#private', search: '' }), '/merge-pdf');
+  assert.equal(cleanPathFor({ hostname: 'pdf.i41.cn', pathname: '/', hash: '#/invoice-nup?invoice=secret', search: '?utm_source=ifangan' }), '/invoice-nup');
+  assert.equal(cleanPathFor({ hostname: 'pdf.i41.cn', pathname: '/', hash: '#/merge-pdf#private', search: '' }), '/merge-pdf');
 });
 
 test('client records each distinct PDF hash tool navigation once', () => {
-  const views = pageViewsFor(
+  const { views, hasHashchangeListener } = pageTrackingFor(
     { hostname: 'pdf.i41.cn', pathname: '/', hash: '#/', search: '' },
     ['#/invoice-nup?invoice=secret', '#/invoice-nup?other=private', '#/ocr-pdf'],
   );
+  assert.equal(hasHashchangeListener, true);
   assert.deepEqual(views.map(view => view.path), ['/', '/invoice-nup', '/ocr-pdf']);
   assert.ok(views.every(view => JSON.stringify(view).includes('secret') === false));
   assert.ok(views.every(view => JSON.stringify(view).includes('private') === false));
 });
 
+test('ordinary pathname sites ignore route-looking hashes and do not track hashchange', () => {
+  assert.equal(cleanPathFor({ hostname: 'imgzip.i41.cn', pathname: '/collage/', hash: '#/private-route?secret=1', search: '' }), '/collage/');
+  const { views, hasHashchangeListener } = pageTrackingFor(
+    { hostname: 'imgzip.i41.cn', pathname: '/collage/', hash: '#/private-route', search: '' },
+    ['#/remove-background/', '#/heic-converter/'],
+    'imgzip',
+  );
+  assert.equal(hasHashchangeListener, false);
+  assert.deepEqual(views.map(view => view.path), ['/collage/']);
+});
+
 test('client preserves ordinary pathname routes and strips unsafe URL data', () => {
   for (const pathname of ['/', '/collage/', '/remove-background/', '/heic-converter/']) {
-    assert.equal(cleanPathFor({ pathname, hash: '', search: '?filename=private.jpg' }), pathname);
+    assert.equal(cleanPathFor({ hostname: 'imgzip.i41.cn', pathname, hash: '', search: '?filename=private.jpg' }), pathname);
   }
-  assert.equal(cleanPathFor({ pathname: '/safe/?filename=private.jpg', hash: '', search: '' }), '/safe/');
-  assert.equal(cleanPathFor({ pathname: '/', hash: '#token=private', search: '' }), '/');
+  assert.equal(cleanPathFor({ hostname: 'imgzip.i41.cn', pathname: '/safe/?filename=private.jpg', hash: '', search: '' }), '/safe/');
+  assert.equal(cleanPathFor({ hostname: 'imgzip.i41.cn', pathname: '/', hash: '#token=private', search: '' }), '/');
 });

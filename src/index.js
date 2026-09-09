@@ -99,7 +99,7 @@ async function sessionValue(secret, now = Math.floor(Date.now() / 1000)) {
 }
 
 async function isAuthenticated(request, env) {
-  if (!env.DASHBOARD_PASSWORD || !env.SESSION_SECRET) return true;
+  if (!env.DASHBOARD_PASSWORD || !env.SESSION_SECRET) return false;
   const cookie = request.headers.get('Cookie') || '';
   const match = cookie.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
   if (!match) return false;
@@ -181,7 +181,7 @@ async function dashboard(request, env) {
       queryAnalytics(env, `SELECT blob1 AS site, blob2 AS event, blob4 AS target, blob5 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 != 'page_view' GROUP BY site, event, target, placement ORDER BY events DESC`),
     ]);
     return Response.json({ range, generatedAt: new Date().toISOString(), summary, sites, pages, trend, sources, outbound }, {
-      headers: { 'Cache-Control': 'public, max-age=60', 'X-Content-Type-Options': 'nosniff' },
+      headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' },
     });
   } catch (error) {
     console.error('dashboard query failed', error);

@@ -75,6 +75,36 @@ test('root URL requires dashboard login', async () => {
   assert.match(await response.text(), /统计面板登录/);
 });
 
+test('dashboard fails closed when either auth secret is missing while public endpoints remain available', async () => {
+  const assetFetch = async request => new Response(
+    request.url.endsWith('login-page.txt') ? '<h1>统计面板登录</h1>' : 'public asset',
+    { status: 200 },
+  );
+  for (const auth of [{}, { DASHBOARD_PASSWORD: '0701' }, { SESSION_SECRET: 'session-secret' }]) {
+    const env = {
+      ...auth,
+      ASSETS: { fetch: assetFetch },
+      EVENTS: { writeDataPoint() {} },
+      ACCOUNT_ID: 'account',
+      ANALYTICS_API_TOKEN: 'token',
+    };
+    for (const path of ['/', '/index.html']) {
+      const response = await worker.fetch(new Request(`https://stats.i41.cn${path}`), env);
+      assert.equal(response.status, 200, `${path} should render login`);
+      assert.match(await response.text(), /统计面板登录/, `${path} must not expose dashboard`);
+    }
+    assert.equal((await worker.fetch(new Request('https://stats.i41.cn/dashboard.js'), env)).status, 401);
+    assert.equal((await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d'), env)).status, 401);
+    assert.equal((await worker.fetch(new Request('https://stats.i41.cn/health'), env)).status, 200);
+    assert.equal((await worker.fetch(new Request('https://stats.i41.cn/analytics.js'), env)).status, 200);
+    assert.equal((await worker.fetch(new Request('https://stats.i41.cn/event', {
+      method: 'POST',
+      headers: { origin: 'https://tools.i41.cn', 'content-type': 'application/json' },
+      body: JSON.stringify({ site: 'tools', event: 'page_view', path: '/' }),
+    }), env)).status, 204);
+  }
+});
+
 test('public analytics script supports module CORS and cross-origin isolation', async () => {
   const env = {
     ASSETS: {
@@ -108,10 +138,21 @@ test('dashboard API returns aggregate analytics without exposing its token', asy
     return Response.json({ data: rows });
   };
   try {
-    const response = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d'), {
+    const env = {
+      DASHBOARD_PASSWORD: '0701', SESSION_SECRET: 'session-secret',
       ACCOUNT_ID: 'account', ANALYTICS_API_TOKEN: 'secret-token', ASSETS: { fetch: () => new Response('asset') },
-    });
+    };
+    const login = await worker.fetch(new Request('https://stats.i41.cn/login', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'password=0701',
+    }), env);
+    const cookie = login.headers.get('set-cookie').split(';', 1)[0];
+    const response = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d', {
+      headers: { cookie },
+    }), env);
     assert.equal(response.status, 200);
+    assert.match(response.headers.get('cache-control') || '', /private/i);
+    assert.match(response.headers.get('cache-control') || '', /no-store/i);
+    assert.doesNotMatch(response.headers.get('cache-control') || '', /public/i);
     const data = await response.json();
     assert.equal(data.range, '7d');
     assert.deepEqual(data.sites, [{ site: 'pdf', events: 3 }]);
@@ -125,10 +166,15 @@ test('dashboard API returns aggregate analytics without exposing its token', asy
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('dashboard API rejects unsupported ranges and reports missing server secret', async () => {
-  const unsupported = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=365d'), {});
+test('authenticated dashboard API rejects unsupported ranges and reports missing query secret', async () => {
+  const env = { DASHBOARD_PASSWORD: '0701', SESSION_SECRET: 'session-secret' };
+  const login = await worker.fetch(new Request('https://stats.i41.cn/login', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'password=0701',
+  }), env);
+  const cookie = login.headers.get('set-cookie').split(';', 1)[0];
+  const unsupported = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=365d', { headers: { cookie } }), env);
   assert.equal(unsupported.status, 400);
-  const missing = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d'), {});
+  const missing = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d', { headers: { cookie } }), env);
   assert.equal(missing.status, 503);
 });
 

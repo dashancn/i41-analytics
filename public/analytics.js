@@ -4,7 +4,9 @@ const PLACEMENTS = new Set(['header_dropdown', 'homepage_tools', 'footer_tools',
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'];
 
 function cleanPath() {
-  const hashRoute = location.hash?.match(/^#(\/[A-Za-z0-9/_-]*)(?:[?#]|$)/)?.[1];
+  const hashRoute = location.hostname === 'pdf.i41.cn'
+    ? location.hash?.match(/^#(\/[A-Za-z0-9/_-]*)(?:[?#]|$)/)?.[1]
+    : undefined;
   const rawPath = hashRoute || String(location.pathname || '/').split(/[?#]/, 1)[0];
   return /^\/[A-Za-z0-9/_-]*$/.test(rawPath) && rawPath.length <= 120 ? rawPath || '/' : '/';
 }
@@ -46,12 +48,14 @@ function init() {
   if (!SITES.has(site)) return;
   let lastPagePath = cleanPath();
   send({ site, event: 'page_view', path: lastPagePath, ...attribution() });
-  globalThis.addEventListener?.('hashchange', () => {
-    const path = cleanPath();
-    if (path === lastPagePath) return;
-    lastPagePath = path;
-    send({ site, event: 'page_view', path });
-  });
+  if (site === 'pdf') {
+    globalThis.addEventListener?.('hashchange', () => {
+      const path = cleanPath();
+      if (path === lastPagePath) return;
+      lastPagePath = path;
+      send({ site, event: 'page_view', path });
+    });
+  }
   document.addEventListener('click', event => {
     const link = event.target.closest?.('a[href]');
     if (!link) return;
