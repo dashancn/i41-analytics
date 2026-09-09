@@ -94,8 +94,10 @@ test('dashboard API returns aggregate analytics without exposing its token', asy
   const queries = [];
   globalThis.fetch = async (_url, options) => {
     queries.push({ body: options.body, authorization: options.headers.Authorization });
-    const rows = options.body.includes('GROUP BY site')
-      ? [{ site: 'pdf', events: '3' }]
+    const rows = options.body.includes('GROUP BY site, path')
+      ? [{ site: 'pdf', path: '/invoice-nup', events: '2' }]
+      : options.body.includes('GROUP BY site')
+        ? [{ site: 'pdf', events: '3' }]
       : options.body.includes('GROUP BY day')
         ? [{ day: '2026-09-03', events: '3' }]
         : options.body.includes('utm_content')
@@ -113,11 +115,13 @@ test('dashboard API returns aggregate analytics without exposing its token', asy
     const data = await response.json();
     assert.equal(data.range, '7d');
     assert.deepEqual(data.sites, [{ site: 'pdf', events: 3 }]);
+    assert.deepEqual(data.pages, [{ site: 'pdf', path: '/invoice-nup', events: 2 }]);
     assert.equal(JSON.stringify(data).includes('secret-token'), false);
-    assert.ok(queries.length >= 5);
+    assert.ok(queries.length >= 6);
     assert.ok(queries.every(query => query.authorization === 'Bearer secret-token'));
     assert.ok(queries.every(query => query.body.includes("timestamp >= toDateTime('")));
     assert.ok(queries.some(query => query.body.includes("formatDateTime(timestamp, '%Y-%m-%d', 'Asia/Shanghai')")));
+    assert.ok(queries.some(query => query.body.includes('blob1 AS site, blob3 AS path') && query.body.includes('GROUP BY site, path')));
   } finally { globalThis.fetch = originalFetch; }
 });
 

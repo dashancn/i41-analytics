@@ -172,14 +172,15 @@ async function dashboard(request, env) {
   if (!env.ACCOUNT_ID || !env.ANALYTICS_API_TOKEN) return Response.json({ error: 'dashboard query is not configured' }, { status: 503 });
   const where = `timestamp >= toDateTime('${start}', 'Etc/UTC')`;
   try {
-    const [summary, sites, trend, sources, outbound] = await Promise.all([
+    const [summary, sites, pages, trend, sources, outbound] = await Promise.all([
       queryAnalytics(env, `SELECT blob2 AS event, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} GROUP BY event ORDER BY events DESC`),
       queryAnalytics(env, `SELECT blob1 AS site, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY site ORDER BY events DESC`),
+      queryAnalytics(env, `SELECT blob1 AS site, blob3 AS path, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY site, path ORDER BY events DESC`),
       queryAnalytics(env, `SELECT formatDateTime(timestamp, '%Y-%m-%d', 'Asia/Shanghai') AS day, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY day ORDER BY day`),
       queryAnalytics(env, `SELECT blob9 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' AND blob9 != '' GROUP BY placement ORDER BY events DESC`),
       queryAnalytics(env, `SELECT blob1 AS site, blob2 AS event, blob4 AS target, blob5 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 != 'page_view' GROUP BY site, event, target, placement ORDER BY events DESC`),
     ]);
-    return Response.json({ range, generatedAt: new Date().toISOString(), summary, sites, trend, sources, outbound }, {
+    return Response.json({ range, generatedAt: new Date().toISOString(), summary, sites, pages, trend, sources, outbound }, {
       headers: { 'Cache-Control': 'public, max-age=60', 'X-Content-Type-Options': 'nosniff' },
     });
   } catch (error) {

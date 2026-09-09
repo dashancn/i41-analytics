@@ -4,8 +4,9 @@ const PLACEMENTS = new Set(['header_dropdown', 'homepage_tools', 'footer_tools',
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'];
 
 function cleanPath() {
-  const path = location.pathname.replace(/[^A-Za-z0-9/_-]/g, '');
-  return path.length <= 120 ? path || '/' : '/';
+  const hashRoute = location.hash?.match(/^#(\/[A-Za-z0-9/_-]*)(?:[?#]|$)/)?.[1];
+  const rawPath = hashRoute || String(location.pathname || '/').split(/[?#]/, 1)[0];
+  return /^\/[A-Za-z0-9/_-]*$/.test(rawPath) && rawPath.length <= 120 ? rawPath || '/' : '/';
 }
 
 function attribution() {
