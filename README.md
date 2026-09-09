@@ -30,6 +30,6 @@ npm test
 npm run deploy
 ```
 
-前端公共脚本位于 `public/analytics.js`，部署后通过 `https://stats.i41.cn/analytics.js` 供六个工具站引用。
+前端公共脚本位于 `public/analytics.js`，部署后通过 `https://stats.i41.cn/analytics.js` 供六个工具站引用。普通页面按 pathname 记录工具路径；Hash Router 页面在每次实际路由变化时记录一次标准化路径，并忽略重复路由、查询参数与非路由 hash。
 
 MIT License

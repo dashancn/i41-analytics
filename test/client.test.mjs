@@ -11,6 +11,29 @@ function cleanPathFor(location) {
   return context.result;
 }
 
+function pageViewsFor(location, hashes) {
+  const listeners = new Map();
+  const events = [];
+  const context = {
+    location,
+    URLSearchParams,
+    URL,
+    navigator: { sendBeacon(_url, body) { events.push(JSON.parse(body)); return true; } },
+    fetch() {},
+    document: {
+      documentElement: { dataset: { i41Site: 'pdf' } },
+      addEventListener() {},
+    },
+    addEventListener(name, handler) { listeners.set(name, handler); },
+  };
+  vm.runInNewContext(source, context);
+  for (const hash of hashes) {
+    location.hash = hash;
+    listeners.get('hashchange')?.();
+  }
+  return events.filter(event => event.event === 'page_view');
+}
+
 test('public root renders the aggregate analytics dashboard', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   assert.match(html, /i41 工具生态数据/);
@@ -83,6 +106,16 @@ test('client recognizes all six canonical tool hosts', () => {
 test('client normalizes PDF SPA hash routes without query data', () => {
   assert.equal(cleanPathFor({ pathname: '/', hash: '#/invoice-nup?invoice=secret', search: '?utm_source=ifangan' }), '/invoice-nup');
   assert.equal(cleanPathFor({ pathname: '/', hash: '#/merge-pdf#private', search: '' }), '/merge-pdf');
+});
+
+test('client records each distinct PDF hash tool navigation once', () => {
+  const views = pageViewsFor(
+    { hostname: 'pdf.i41.cn', pathname: '/', hash: '#/', search: '' },
+    ['#/invoice-nup?invoice=secret', '#/invoice-nup?other=private', '#/ocr-pdf'],
+  );
+  assert.deepEqual(views.map(view => view.path), ['/', '/invoice-nup', '/ocr-pdf']);
+  assert.ok(views.every(view => JSON.stringify(view).includes('secret') === false));
+  assert.ok(views.every(view => JSON.stringify(view).includes('private') === false));
 });
 
 test('client preserves ordinary pathname routes and strips unsafe URL data', () => {

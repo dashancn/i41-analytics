@@ -44,7 +44,14 @@ function placementFor(link) {
 function init() {
   const site = document.documentElement.dataset.i41Site || siteFromHost(location.hostname);
   if (!SITES.has(site)) return;
-  send({ site, event: 'page_view', path: cleanPath(), ...attribution() });
+  let lastPagePath = cleanPath();
+  send({ site, event: 'page_view', path: lastPagePath, ...attribution() });
+  globalThis.addEventListener?.('hashchange', () => {
+    const path = cleanPath();
+    if (path === lastPagePath) return;
+    lastPagePath = path;
+    send({ site, event: 'page_view', path });
+  });
   document.addEventListener('click', event => {
     const link = event.target.closest?.('a[href]');
     if (!link) return;
