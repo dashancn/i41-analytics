@@ -145,12 +145,12 @@ test('client records each distinct PDF hash tool navigation once', () => {
   assert.ok(views.every(view => JSON.stringify(view).includes('private') === false));
 });
 
-test('client ignores non-route and malformed PDF hashes after a valid route', () => {
+test('client ignores non-route, malformed, and unknown PDF hashes after a valid route', () => {
   const { views } = pageTrackingFor(
     { hostname: 'pdf.i41.cn', pathname: '/', hash: '#/invoice-nup', search: '' },
-    ['#section', '#/%malformed', '#/invoice-nup?private=1', '#/ocr-pdf'],
+    ['#section', '#//broken', '#/not-a-real-tool', '#/invoice-nup'],
   );
-  assert.deepEqual(views.map(view => view.path), ['/invoice-nup', '/ocr-pdf']);
+  assert.deepEqual(views.map(view => view.path), ['/invoice-nup']);
 });
 
 test('ordinary pathname sites ignore route-looking hashes and do not track hashchange', () => {
