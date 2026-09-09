@@ -165,11 +165,18 @@ async function queryAnalytics(env, sql) {
   return numericRows((await result.json()).data);
 }
 
+function dashboardResponse(body, status = 200) {
+  return Response.json(body, {
+    status,
+    headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' },
+  });
+}
+
 async function dashboard(request, env) {
   const range = new URL(request.url).searchParams.get('range') || '7d';
   const start = rangeStartUtc(range);
-  if (!start) return Response.json({ error: 'unsupported range' }, { status: 400 });
-  if (!env.ACCOUNT_ID || !env.ANALYTICS_API_TOKEN) return Response.json({ error: 'dashboard query is not configured' }, { status: 503 });
+  if (!start) return dashboardResponse({ error: 'unsupported range' }, 400);
+  if (!env.ACCOUNT_ID || !env.ANALYTICS_API_TOKEN) return dashboardResponse({ error: 'dashboard query is not configured' }, 503);
   const where = `timestamp >= toDateTime('${start}', 'Etc/UTC')`;
   try {
     const [summary, sites, pages, trend, sources, outbound] = await Promise.all([
@@ -180,12 +187,10 @@ async function dashboard(request, env) {
       queryAnalytics(env, `SELECT blob9 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' AND blob9 != '' GROUP BY placement ORDER BY events DESC`),
       queryAnalytics(env, `SELECT blob1 AS site, blob2 AS event, blob4 AS target, blob5 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 != 'page_view' GROUP BY site, event, target, placement ORDER BY events DESC`),
     ]);
-    return Response.json({ range, generatedAt: new Date().toISOString(), summary, sites, pages, trend, sources, outbound }, {
-      headers: { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' },
-    });
+    return dashboardResponse({ range, generatedAt: new Date().toISOString(), summary, sites, pages, trend, sources, outbound });
   } catch (error) {
     console.error('dashboard query failed', error);
-    return Response.json({ error: 'analytics query failed' }, { status: 502 });
+    return dashboardResponse({ error: 'analytics query failed' }, 502);
   }
 }
 
@@ -198,7 +203,7 @@ export default {
     if (url.pathname === '/login' && request.method === 'GET') return privateAsset(request, env, '/login-page.txt');
     if (url.pathname === '/logout' && request.method === 'POST') return logout();
     if (url.pathname === '/api/dashboard' && request.method === 'GET') {
-      if (!await isAuthenticated(request, env)) return Response.json({ error: 'unauthorized' }, { status: 401 });
+      if (!await isAuthenticated(request, env)) return dashboardResponse({ error: 'unauthorized' }, 401);
       return dashboard(request, env);
     }
     if ((url.pathname === '/' || url.pathname === '/index.html' || url.pathname === '/dashboard.js') && !await isAuthenticated(request, env)) {

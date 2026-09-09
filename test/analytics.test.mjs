@@ -174,8 +174,28 @@ test('authenticated dashboard API rejects unsupported ranges and reports missing
   const cookie = login.headers.get('set-cookie').split(';', 1)[0];
   const unsupported = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=365d', { headers: { cookie } }), env);
   assert.equal(unsupported.status, 400);
+  assert.equal(unsupported.headers.get('cache-control'), 'private, no-store');
   const missing = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d', { headers: { cookie } }), env);
   assert.equal(missing.status, 503);
+  assert.equal(missing.headers.get('cache-control'), 'private, no-store');
+});
+
+test('dashboard API query failures remain private and uncached', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('upstream failure', { status: 500 });
+  try {
+    const env = {
+      DASHBOARD_PASSWORD: '0701', SESSION_SECRET: 'session-secret',
+      ACCOUNT_ID: 'account', ANALYTICS_API_TOKEN: 'token',
+    };
+    const login = await worker.fetch(new Request('https://stats.i41.cn/login', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'password=0701',
+    }), env);
+    const cookie = login.headers.get('set-cookie').split(';', 1)[0];
+    const response = await worker.fetch(new Request('https://stats.i41.cn/api/dashboard?range=7d', { headers: { cookie } }), env);
+    assert.equal(response.status, 502);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('dashboard login rejects wrong password and issues a secure cookie for 0701', async () => {
@@ -210,6 +230,7 @@ test('dashboard API is private when authentication is configured', async () => {
     DASHBOARD_PASSWORD: '0701', SESSION_SECRET: 'session-secret', ACCOUNT_ID: 'account', ANALYTICS_API_TOKEN: 'token',
   });
   assert.equal(response.status, 401);
+  assert.equal(response.headers.get('cache-control'), 'private, no-store');
 });
 
 test('worker rejects disallowed origins and oversized bodies', async () => {
