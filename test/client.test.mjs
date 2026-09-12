@@ -5,10 +5,12 @@ import vm from 'node:vm';
 
 const source = await readFile(new URL('../public/analytics.js', import.meta.url), 'utf8');
 const dashboardSource = await readFile(new URL('../public/dashboard.js', import.meta.url), 'utf8');
+const { toolsRouteNames } = await import('../public/tool-route-names.js');
 
 function dashboardRouteLabel(row) {
-  const context = {};
-  const withoutInit = dashboardSource.replace(/document\.querySelectorAll[\s\S]*$/, '');
+  const context = { toolsRouteNames };
+  const withoutImport = dashboardSource.replace(/^import .*\n+/, '');
+  const withoutInit = withoutImport.replace(/document\.querySelectorAll[\s\S]*$/, '');
   vm.runInNewContext(`${withoutInit}\nthis.result = routeLabel(${JSON.stringify(row)});`, context);
   return context.result;
 }
@@ -92,6 +94,7 @@ test('dashboard labels known site roots and keeps readable unknown-route fallbac
   for (const [site, expected] of Object.entries(roots)) {
     assert.equal(dashboardRouteLabel({ site, path: '/' }), expected);
   }
+  assert.equal(dashboardRouteLabel({ site: 'tools', path: '/json-prettify' }), 'JSON美化和格式化');
   assert.equal(dashboardRouteLabel({ site: 'tools', path: '/json-format' }), '未知工具（开发者工具 /json-format）');
 });
 

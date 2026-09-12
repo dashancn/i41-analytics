@@ -1,6 +1,8 @@
+import { toolsRouteNames } from './tool-route-names.js';
+
 const names={tools:'开发者工具',imgzip:'图片工具',pdf:'PDF 工具',idphoto:'证件照',watermark:'证件水印',clip:'临时剪贴板',header_dropdown:'顶部下拉',homepage_tools:'首页卡片',footer_tools:'页脚工具',ecosystem_nav:'生态导航',promo_banner:'推广横幅',footer:'页脚',primary:'i方案',page_view:'页面访问',ecosystem_click:'工具间跳转',primary_product_click:'前往 i方案'};
 const routeNames={
-  tools:{'/':'开发者工具'},
+  tools:toolsRouteNames,
   imgzip:{'/':'图片压缩','/heic-converter/':'HEIC 转换','/remove-background/':'智能抠图','/collage/':'多图拼接'},
   pdf:{'/':'PDF 工具','/merge-pdf':'合并 PDF','/split-pdf':'拆分 PDF','/organize-pdf':'整理 PDF','/rotate-pdf':'旋转 PDF','/reverse-pages':'倒序页面','/add-blank-page':'添加空白页','/remove-blank-pages':'删除空白页','/crop-pdf':'裁剪 PDF','/resize-pdf':'调整页面尺寸','/nup-pdf':'多页合一','/invoice-nup':'A4 发票拼版','/booklet-pdf':'PDF 小册子','/pdf-to-jpg':'PDF 转 JPG','/pdf-to-png':'PDF 转 PNG','/pdf-to-webp':'PDF 转 WebP','/pdf-to-text':'PDF 转文本','/pdf-to-markdown':'PDF 转 Markdown','/pdf-to-epub':'PDF 转 EPUB','/jpg-to-pdf':'图片转 PDF','/text-to-pdf':'文本转 PDF','/markdown-to-pdf':'Markdown 转 PDF','/watermark-pdf':'添加水印','/page-numbers':'添加页码','/header-footer':'页眉与页脚','/sign-pdf':'签名 PDF','/edit-pdf':'编辑 PDF','/add-qr-code':'添加二维码','/edit-metadata':'编辑元数据','/compress-pdf':'压缩 PDF','/flatten-pdf':'扁平化 PDF','/grayscale-pdf':'PDF 转灰度','/invert-colors':'反转颜色','/repair-pdf':'修复 PDF','/redact-pdf':'涂黑敏感内容','/protect-pdf':'加密 PDF','/unlock-pdf':'解锁 PDF','/ocr-pdf':'OCR 识别 PDF','/compare-pdf':'比较 PDF','/extract-images':'提取图片','/check-accessibility':'无障碍检查'},
   idphoto:{'/':'证件照'},
