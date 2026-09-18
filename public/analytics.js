@@ -70,13 +70,13 @@ function externalReferrer() {
   // Keywords exist only when the sanitized referring URL still contains one of the fixed search
   // parameters. Values over the limit are omitted instead of truncated so server validation agrees.
   const keyword = KEYWORD_KEYS.map(key => url.searchParams.get(key)).find(value => value);
-  const trimmed = keyword?.trim() || '';
   if (
-    trimmed &&
-    Array.from(trimmed).length <= KEYWORD_MAX &&
-    !CONTROL_CHARS.test(trimmed)
+    keyword &&
+    keyword === keyword.trim() &&
+    Array.from(keyword).length <= KEYWORD_MAX &&
+    !CONTROL_CHARS.test(keyword)
   )
-    result.referrer_keyword = trimmed;
+    result.referrer_keyword = keyword;
   return result;
 }
 

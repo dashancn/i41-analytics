@@ -104,6 +104,9 @@ test('client extracts a keyword only from common search parameters the referrer 
     assert.equal(firstView(referrer).referrer_keyword, expected, referrer);
   }
   assert.equal(firstView('https://example.com/find?other=json').referrer_keyword, undefined);
+  const spaced = firstView('https://example.com/find?q=%20json%20');
+  assert.equal(spaced.referrer_keyword, undefined);
+  assert.equal(spaced.referrer_url, 'https://example.com/find?q=%20json%20');
   const long = firstView(`https://example.com/s?q=${'词'.repeat(200)}`);
   assert.equal(long.referrer_keyword, undefined);
   assert.equal(long.referrer_url, 'https://example.com/s');
