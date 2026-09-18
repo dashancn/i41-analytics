@@ -105,7 +105,8 @@ test('client extracts a keyword only from common search parameters the referrer 
   }
   assert.equal(firstView('https://example.com/find?other=json').referrer_keyword, undefined);
   const long = firstView(`https://example.com/s?q=${'词'.repeat(200)}`);
-  assert.equal(Array.from(long.referrer_keyword).length, 100);
+  assert.equal(long.referrer_keyword, undefined);
+  assert.equal(long.referrer_url, 'https://example.com/s');
 });
 
 test('client strips sensitive query parameters from the referrer URL', () => {
@@ -143,6 +144,14 @@ test('client rejects referrers that are not http or https', () => {
   for (const referrer of ['android-app://com.example.app', 'javascript:alert(1)', 'data:text/html,x', 'file:///tmp/secret.pdf', 'ftp://example.com/x']) {
     assert.deepEqual(referrerKeys(firstView(referrer)), [], referrer);
   }
+});
+
+test('client omits unsupported host forms instead of sending an event the worker rejects', () => {
+  for (const referrer of [
+    'http://localhost/path', 'http://intranet/path', 'http://[2001:db8::1]/path',
+    'https://bad_host.example.com/path', 'https://example.com./path',
+  ])
+    assert.deepEqual(referrerKeys(firstView(referrer)), [], referrer);
 });
 
 test('client never reports the current landing page URL, query or hash', () => {

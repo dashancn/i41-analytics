@@ -58,21 +58,25 @@ function externalReferrer() {
   const host = url.hostname.toLowerCase();
   if (isInternalHost(host)) return { referrer_type: 'internal' };
   if (!host || CONTROL_CHARS.test(host)) return {};
+  if (!/^(?=.{4,128}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(host)) return {};
   const result = { referrer_type: 'external', referrer_host: host };
   url.username = '';
   url.password = '';
   url.hash = '';
-  // Read the keyword before stripping: 'keyword' itself contains the sensitive fragment 'key', so
-  // the denylist would otherwise remove it. Only this fixed list of names is ever read.
-  const keyword = KEYWORD_KEYS.map(key => url.searchParams.get(key)).find(value => value);
   for (const name of [...url.searchParams.keys()]) if (isSensitiveParam(name)) url.searchParams.delete(name);
   if (url.href.length > REFERRER_URL_MAX) url.search = '';
   if (url.href.length > REFERRER_URL_MAX || CONTROL_CHARS.test(url.href)) return result;
   result.referrer_url = url.href;
-  // Keywords exist only when the referring site puts one in the URL it sent us. Google, Baidu and
-  // Bing normally deliver an origin-only referrer, so most search visits have no keyword at all.
-  const trimmed = keyword ? Array.from(keyword.trim()).slice(0, KEYWORD_MAX).join('') : '';
-  if (trimmed && !CONTROL_CHARS.test(trimmed)) result.referrer_keyword = trimmed;
+  // Keywords exist only when the sanitized referring URL still contains one of the fixed search
+  // parameters. Values over the limit are omitted instead of truncated so server validation agrees.
+  const keyword = KEYWORD_KEYS.map(key => url.searchParams.get(key)).find(value => value);
+  const trimmed = keyword?.trim() || '';
+  if (
+    trimmed &&
+    Array.from(trimmed).length <= KEYWORD_MAX &&
+    !CONTROL_CHARS.test(trimmed)
+  )
+    result.referrer_keyword = trimmed;
   return result;
 }
 
