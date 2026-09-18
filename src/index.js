@@ -226,14 +226,17 @@ function numericRows(rows = []) {
   ])));
 }
 
-async function queryAnalytics(env, sql) {
+async function queryAnalytics(env, sql, label = 'query') {
   const api = `https://api.cloudflare.com/client/v4/accounts/${env.ACCOUNT_ID}/analytics_engine/sql`;
   const result = await fetch(api, {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.ANALYTICS_API_TOKEN}` },
     body: `${sql} FORMAT JSON`,
   });
-  if (!result.ok) throw new Error(`analytics query failed: ${result.status}`);
+  if (!result.ok) {
+    const detail = (await result.text()).slice(0, 1000);
+    throw new Error(`${label} failed: ${result.status}: ${detail}`);
+  }
   return numericRows((await result.json()).data);
 }
 
@@ -242,10 +245,22 @@ const REFERRER_VISIT_LIMIT = 100;
 
 // Stored rows are re-checked on the way out, so a row written by an older or looser version of
 // the client can never hand the panel a URL it would be unsafe to render or link.
+function shanghaiTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).format(date);
+  return parts;
+}
+
 function visitRow(row) {
   const host = typeof row.referrer_host === 'string' ? row.referrer_host : '';
   if (!REFERRER_HOST_PATTERN.test(host)) return null;
-  const visit = { time: row.time, site: row.site, path: row.path, referrer_host: host };
+  const visit = { time: shanghaiTime(row.time), site: row.site, path: row.path, referrer_host: host };
+  if (!visit.time) delete visit.time;
   let url;
   try { url = sanitizeReferrerUrl(row.referrer_url, host); } catch { return visit; }
   visit.referrer_url = url;
@@ -271,14 +286,14 @@ async function dashboard(request, env) {
   const externalWhere = `${where} AND blob2 = 'page_view' AND blob10 = 'external' AND blob11 != ''`;
   try {
     const [summary, sites, pages, trend, sources, outbound, referrerHosts, referrerVisits] = await Promise.all([
-      queryAnalytics(env, `SELECT blob2 AS event, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} GROUP BY event ORDER BY events DESC`),
-      queryAnalytics(env, `SELECT blob1 AS site, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY site ORDER BY events DESC`),
-      queryAnalytics(env, `SELECT blob1 AS site, blob3 AS path, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY site, path ORDER BY events DESC`),
-      queryAnalytics(env, `SELECT formatDateTime(timestamp, '%Y-%m-%d', 'Asia/Shanghai') AS day, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY day ORDER BY day`),
-      queryAnalytics(env, `SELECT blob9 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' AND blob9 != '' GROUP BY placement ORDER BY events DESC`),
-      queryAnalytics(env, `SELECT blob1 AS site, blob2 AS event, blob4 AS target, blob5 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 != 'page_view' GROUP BY site, event, target, placement ORDER BY events DESC`),
-      queryAnalytics(env, `SELECT blob11 AS referrer_host, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${externalWhere} GROUP BY referrer_host ORDER BY events DESC LIMIT ${REFERRER_HOST_LIMIT}`),
-      queryAnalytics(env, `SELECT formatDateTime(timestamp, '%Y-%m-%d %H:%i:%S', 'Asia/Shanghai') AS time, blob1 AS site, blob3 AS path, blob11 AS referrer_host, blob12 AS referrer_url, blob13 AS referrer_keyword FROM i41_tool_events WHERE ${externalWhere} ORDER BY timestamp DESC LIMIT ${REFERRER_VISIT_LIMIT}`),
+      queryAnalytics(env, `SELECT blob2 AS event, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} GROUP BY event ORDER BY events DESC`, 'summary'),
+      queryAnalytics(env, `SELECT blob1 AS site, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY site ORDER BY events DESC`, 'sites'),
+      queryAnalytics(env, `SELECT blob1 AS site, blob3 AS path, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY site, path ORDER BY events DESC`, 'pages'),
+      queryAnalytics(env, `SELECT formatDateTime(timestamp, '%Y-%m-%d', 'Asia/Shanghai') AS day, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY day ORDER BY day`, 'trend'),
+      queryAnalytics(env, `SELECT blob9 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' AND blob9 != '' GROUP BY placement ORDER BY events DESC`, 'sources'),
+      queryAnalytics(env, `SELECT blob1 AS site, blob2 AS event, blob4 AS target, blob5 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 != 'page_view' GROUP BY site, event, target, placement ORDER BY events DESC`, 'outbound'),
+      queryAnalytics(env, `SELECT blob11 AS referrer_host, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${externalWhere} GROUP BY referrer_host ORDER BY events DESC LIMIT ${REFERRER_HOST_LIMIT}`, 'referrerHosts'),
+      queryAnalytics(env, `SELECT timestamp AS time, blob1 AS site, blob3 AS path, blob11 AS referrer_host, blob12 AS referrer_url, blob13 AS referrer_keyword FROM i41_tool_events WHERE ${externalWhere} ORDER BY time DESC LIMIT ${REFERRER_VISIT_LIMIT}`, 'referrerVisits'),
     ]);
     return dashboardResponse({
       range, generatedAt: new Date().toISOString(), summary, sites, pages, trend, sources, outbound,

@@ -340,7 +340,7 @@ test('dashboard API aggregates referrer hosts and returns bounded, sanitized vis
       { referrer_host: 'www.google.com', events: '5' },
       { referrer_host: 'www.v2ex.com', events: '2' },
     ]],
-    ['ORDER BY timestamp DESC', [
+    ['ORDER BY time DESC', [
       { time: '2026-09-18 10:30:00', site: 'pdf', path: '/merge-pdf', referrer_host: 'www.google.com', referrer_url: 'https://www.google.com/search?q=pdf', referrer_keyword: 'pdf' },
       { time: '2026-09-18 09:00:00', site: 'tools', path: '/json-prettify', referrer_host: 'www.v2ex.com', referrer_url: 'https://www.v2ex.com/t/1', referrer_keyword: '' },
       { time: '2026-09-17 20:00:00', site: 'clip', path: '/', referrer_host: '', referrer_url: '', referrer_keyword: '' },
@@ -356,27 +356,27 @@ test('dashboard API aggregates referrer hosts and returns bounded, sanitized vis
       { referrer_host: 'www.v2ex.com', events: 2 },
     ]);
     assert.deepEqual(body.referrerVisits, [
-      { time: '2026-09-18 10:30:00', site: 'pdf', path: '/merge-pdf', referrer_host: 'www.google.com', referrer_url: 'https://www.google.com/search?q=pdf', referrer_keyword: 'pdf' },
-      { time: '2026-09-18 09:00:00', site: 'tools', path: '/json-prettify', referrer_host: 'www.v2ex.com', referrer_url: 'https://www.v2ex.com/t/1' },
-      { time: '2026-09-17 19:00:00', site: 'pdf', path: '/', referrer_host: 'www.google.com' },
-      { time: '2026-09-17 18:00:00', site: 'pdf', path: '/', referrer_host: 'a.example.com' },
+      { time: '2026-09-18 18:30:00', site: 'pdf', path: '/merge-pdf', referrer_host: 'www.google.com', referrer_url: 'https://www.google.com/search?q=pdf', referrer_keyword: 'pdf' },
+      { time: '2026-09-18 17:00:00', site: 'tools', path: '/json-prettify', referrer_host: 'www.v2ex.com', referrer_url: 'https://www.v2ex.com/t/1' },
+      { time: '2026-09-18 03:00:00', site: 'pdf', path: '/', referrer_host: 'www.google.com' },
+      { time: '2026-09-18 02:00:00', site: 'pdf', path: '/', referrer_host: 'a.example.com' },
     ]);
     const hostQuery = api.queries.find(query => query.includes('GROUP BY referrer_host'));
-    const visitQuery = api.queries.find(query => query.includes('ORDER BY timestamp DESC'));
+    const visitQuery = api.queries.find(query => query.includes('ORDER BY time DESC'));
     for (const query of [hostQuery, visitQuery]) {
       assert.match(query, /LIMIT \d+/);
       assert.match(query, /blob10 = 'external'/);
       assert.match(query, /blob11 != ''/);
       assert.match(query, /timestamp >= toDateTime\('/);
     }
-    assert.match(visitQuery, /formatDateTime\(timestamp, '%Y-%m-%d %H:%i:%S', 'Asia\/Shanghai'\)/);
+    assert.match(visitQuery, /SELECT timestamp AS time/);
     assert.equal(/\bgenerated|\$\{range\}/.test(visitQuery), false);
   } finally { api.restore(); }
 });
 
 test('dashboard API excludes historical rows that predate the referrer columns', async () => {
   const api = dashboardApi([
-    ['ORDER BY timestamp DESC', [
+    ['ORDER BY time DESC', [
       { time: '2026-09-01 08:00:00', site: 'pdf', path: '/', referrer_host: '', referrer_url: '', referrer_keyword: '' },
       { time: '2026-09-01 07:00:00', site: 'pdf', path: '/', referrer_host: undefined },
     ]],
