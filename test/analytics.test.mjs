@@ -43,7 +43,7 @@ test('worker accepts valid CORS request and writes fixed columns', async () => {
   assert.equal(response.headers.get('access-control-allow-origin'), 'https://pdf.i41.cn');
   assert.deepEqual(writes[0], {
     indexes: ['pdf'],
-    blobs: ['pdf','page_view','/','','','ifangan','product_navigation','i41_tools','homepage_tools'],
+    blobs: ['pdf','page_view','/','','','ifangan','product_navigation','i41_tools','homepage_tools','','','',''],
     doubles: [1],
   });
 });

@@ -52,7 +52,7 @@ test('public root renders the aggregate analytics dashboard', async () => {
   assert.match(html, /i41 工具生态数据/);
   assert.match(html, /近 7 天/);
   assert.match(html, /站点访问/);
-  assert.match(html, /i方案入口来源/);
+  assert.match(html, /站内入口位置/);
   assert.match(html, /跨站导流/);
   assert.match(html, /不收集文件、用户输入或永久身份标识/);
   assert.match(html, /src="\/dashboard\.js"/);
@@ -115,9 +115,10 @@ test('login page asks for a password without embedding it', async () => {
   assert.doesNotMatch(html, /0701/);
 });
 
-test('client sends only the three approved event names', () => {
+test('client sends only the three approved event names and no visitor identity fields', () => {
   for (const name of ['page_view','ecosystem_click','primary_product_click']) assert.ok(source.includes(`event: '${name}'`));
-  for (const forbidden of ['filename','password','clipboard','userAgent','cookie','localStorage']) assert.ok(!source.includes(forbidden));
+  for (const forbidden of ['filename','clipboard','userAgent','cookie','localStorage']) assert.ok(!source.includes(forbidden));
+  assert.doesNotMatch(source, /(?:event|payload)\.(?:password|passwd)/);
 });
 
 test('client is best effort, avoids CORS preflight, and preserves navigation', () => {

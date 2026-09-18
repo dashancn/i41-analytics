@@ -6,7 +6,18 @@ const UTM_SOURCE = new Set(['ifangan', ...SITES]);
 const UTM_MEDIUM = new Set(['product_navigation', 'tool_referral']);
 const UTM_CAMPAIGN = new Set(['i41_tools', 'ifangan']);
 const UTM_CONTENT = PLACEMENTS;
-const FIELDS = new Set(['site','event','path','target','placement','utm_source','utm_medium','utm_campaign','utm_content']);
+const FIELDS = new Set(['site','event','path','target','placement','utm_source','utm_medium','utm_campaign','utm_content','referrer_type','referrer_host','referrer_url','referrer_keyword']);
+const REFERRER_TYPES = new Set(['internal', 'external']);
+function isInternalHost(host) {
+  return host === 'i41.cn' || host.endsWith('.i41.cn');
+}
+// Kept identical to public/analytics.js: fragments, so access_token / api_key / reset_code match too.
+const SENSITIVE_PARAM_PARTS = ['token', 'code', 'password', 'passwd', 'key', 'secret', 'signature', 'sig', 'auth', 'session', 'email', 'phone', 'invite', 'reset'];
+const KEYWORD_KEYS = new Set(['q', 'query', 'wd', 'word', 'keyword', 'kw', 'p']);
+const REFERRER_HOST_PATTERN = /^(?=.{4,128}$)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+const CONTROL_CHARS = /[\u0000-]/;
+const REFERRER_URL_MAX = 500;
+const KEYWORD_MAX = 100;
 const ORIGINS = new Set([
   'https://tools.i41.cn','https://imgzip.i41.cn','https://pdf.i41.cn',
   'https://idphoto.i41.cn','https://watermark.i41.cn','https://clip.i41.cn',
@@ -17,6 +28,67 @@ function optionalEnum(value, allowed, name) {
   if (value === undefined || value === '') return undefined;
   if (!allowed.has(value)) throw new Error(`invalid ${name}`);
   return value;
+}
+
+function optionalText(value, name) {
+  if (value === undefined || value === '') return undefined;
+  if (typeof value !== 'string') throw new Error(`invalid ${name}`);
+  return value;
+}
+
+// Re-validates what the client claims to have sanitized. Returns the URL only when it is an
+// http(s) URL for `host`, carries no credentials or fragment, no sensitive parameter and no
+// control characters, and stays within the length budget. Anything else is rejected outright.
+export function sanitizeReferrerUrl(value, host) {
+  const fail = () => { throw new Error('invalid referrer_url'); };
+  if (typeof value !== 'string' || value.length > REFERRER_URL_MAX || CONTROL_CHARS.test(value)) fail();
+  if (/\s/.test(value) || value.includes('#')) fail();
+  let url;
+  try { url = new URL(value); } catch { fail(); }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') fail();
+  if (url.username || url.password) fail();
+  if (url.hostname.toLowerCase() !== host) fail();
+  for (const name of url.searchParams.keys()) {
+    const lower = name.toLowerCase();
+    if (
+      !KEYWORD_KEYS.has(lower) &&
+      SENSITIVE_PARAM_PARTS.some(part => lower.includes(part))
+    )
+      fail();
+  }
+  if (url.href !== value) fail();
+  return value;
+}
+
+function referrerFields(input, event) {
+  const type = optionalEnum(optionalText(input.referrer_type, 'referrer_type'), REFERRER_TYPES, 'referrer_type');
+  const host = optionalText(input.referrer_host, 'referrer_host');
+  const url = optionalText(input.referrer_url, 'referrer_url');
+  const keyword = optionalText(input.referrer_keyword, 'referrer_keyword');
+  if (type === undefined && host === undefined && url === undefined && keyword === undefined) return {};
+  // Source data describes how the visitor arrived, so it belongs to the first page view only.
+  if (event !== 'page_view') throw new Error('referrer data is only allowed on page_view');
+  if (type === undefined) throw new Error('referrer_type required');
+  if (type === 'internal') {
+    if (host !== undefined || url !== undefined || keyword !== undefined) throw new Error('internal referrer must not carry details');
+    return { referrer_type: 'internal' };
+  }
+  if (host === undefined) throw new Error('referrer_host required');
+  const normalizedHost = host.toLowerCase();
+  if (normalizedHost !== host || !REFERRER_HOST_PATTERN.test(normalizedHost)) throw new Error('invalid referrer_host');
+  if (isInternalHost(normalizedHost)) throw new Error('internal host cannot be external referrer');
+  const result = { referrer_type: 'external', referrer_host: normalizedHost };
+  if (url !== undefined) result.referrer_url = sanitizeReferrerUrl(url, normalizedHost);
+  if (keyword !== undefined) {
+    if (result.referrer_url === undefined) throw new Error('referrer_keyword requires referrer_url');
+    if (CONTROL_CHARS.test(keyword) || Array.from(keyword).length > KEYWORD_MAX) throw new Error('invalid referrer_keyword');
+    const matchesUrl = [...new URL(result.referrer_url).searchParams.entries()].some(
+      ([name, value]) => KEYWORD_KEYS.has(name.toLowerCase()) && value === keyword,
+    );
+    if (!matchesUrl) throw new Error('referrer_keyword must match referrer_url');
+    result.referrer_keyword = keyword;
+  }
+  return result;
 }
 
 export function normalizeEvent(input) {
@@ -39,7 +111,7 @@ export function normalizeEvent(input) {
     const value = optionalEnum(input[key], set, key);
     if (value !== undefined) normalized[key] = value;
   }
-  return normalized;
+  return { ...normalized, ...referrerFields(input, event) };
 }
 
 function cors(origin) {
@@ -165,6 +237,23 @@ async function queryAnalytics(env, sql) {
   return numericRows((await result.json()).data);
 }
 
+const REFERRER_HOST_LIMIT = 50;
+const REFERRER_VISIT_LIMIT = 100;
+
+// Stored rows are re-checked on the way out, so a row written by an older or looser version of
+// the client can never hand the panel a URL it would be unsafe to render or link.
+function visitRow(row) {
+  const host = typeof row.referrer_host === 'string' ? row.referrer_host : '';
+  if (!REFERRER_HOST_PATTERN.test(host)) return null;
+  const visit = { time: row.time, site: row.site, path: row.path, referrer_host: host };
+  let url;
+  try { url = sanitizeReferrerUrl(row.referrer_url, host); } catch { return visit; }
+  visit.referrer_url = url;
+  const keyword = typeof row.referrer_keyword === 'string' ? row.referrer_keyword : '';
+  if (keyword && !CONTROL_CHARS.test(keyword) && Array.from(keyword).length <= KEYWORD_MAX) visit.referrer_keyword = keyword;
+  return visit;
+}
+
 function dashboardResponse(body, status = 200) {
   return Response.json(body, {
     status,
@@ -178,16 +267,24 @@ async function dashboard(request, env) {
   if (!start) return dashboardResponse({ error: 'unsupported range' }, 400);
   if (!env.ACCOUNT_ID || !env.ANALYTICS_API_TOKEN) return dashboardResponse({ error: 'dashboard query is not configured' }, 503);
   const where = `timestamp >= toDateTime('${start}', 'Etc/UTC')`;
+  // Rows written before blob10 existed have an empty referrer_type, so they drop out here.
+  const externalWhere = `${where} AND blob2 = 'page_view' AND blob10 = 'external' AND blob11 != ''`;
   try {
-    const [summary, sites, pages, trend, sources, outbound] = await Promise.all([
+    const [summary, sites, pages, trend, sources, outbound, referrerHosts, referrerVisits] = await Promise.all([
       queryAnalytics(env, `SELECT blob2 AS event, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} GROUP BY event ORDER BY events DESC`),
       queryAnalytics(env, `SELECT blob1 AS site, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY site ORDER BY events DESC`),
       queryAnalytics(env, `SELECT blob1 AS site, blob3 AS path, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY site, path ORDER BY events DESC`),
       queryAnalytics(env, `SELECT formatDateTime(timestamp, '%Y-%m-%d', 'Asia/Shanghai') AS day, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' GROUP BY day ORDER BY day`),
       queryAnalytics(env, `SELECT blob9 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 = 'page_view' AND blob9 != '' GROUP BY placement ORDER BY events DESC`),
       queryAnalytics(env, `SELECT blob1 AS site, blob2 AS event, blob4 AS target, blob5 AS placement, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${where} AND blob2 != 'page_view' GROUP BY site, event, target, placement ORDER BY events DESC`),
+      queryAnalytics(env, `SELECT blob11 AS referrer_host, SUM(_sample_interval) AS events FROM i41_tool_events WHERE ${externalWhere} GROUP BY referrer_host ORDER BY events DESC LIMIT ${REFERRER_HOST_LIMIT}`),
+      queryAnalytics(env, `SELECT formatDateTime(timestamp, '%Y-%m-%d %H:%i:%S', 'Asia/Shanghai') AS time, blob1 AS site, blob3 AS path, blob11 AS referrer_host, blob12 AS referrer_url, blob13 AS referrer_keyword FROM i41_tool_events WHERE ${externalWhere} ORDER BY timestamp DESC LIMIT ${REFERRER_VISIT_LIMIT}`),
     ]);
-    return dashboardResponse({ range, generatedAt: new Date().toISOString(), summary, sites, pages, trend, sources, outbound });
+    return dashboardResponse({
+      range, generatedAt: new Date().toISOString(), summary, sites, pages, trend, sources, outbound,
+      referrerHosts: referrerHosts.filter(row => row.referrer_host),
+      referrerVisits: referrerVisits.map(visitRow).filter(Boolean),
+    });
   } catch (error) {
     console.error('dashboard query failed', error);
     return dashboardResponse({ error: 'analytics query failed' }, 502);
@@ -237,7 +334,8 @@ export default {
     catch { return response(400, origin, 'invalid event'); }
     env.EVENTS.writeDataPoint({
       indexes: [event.site],
-      blobs: [event.site,event.event,event.path || '',event.target || '',event.placement || '',event.utm_source || '',event.utm_medium || '',event.utm_campaign || '',event.utm_content || ''],
+      // blob10-13 are appended after the original nine columns so older rows stay readable.
+      blobs: [event.site,event.event,event.path || '',event.target || '',event.placement || '',event.utm_source || '',event.utm_medium || '',event.utm_campaign || '',event.utm_content || '',event.referrer_type || '',event.referrer_host || '',event.referrer_url || '',event.referrer_keyword || ''],
       doubles: [1],
     });
     return response(204, origin);

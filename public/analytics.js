@@ -2,6 +2,16 @@ const ENDPOINT = 'https://stats.i41.cn/event';
 const SITES = new Set(['tools', 'imgzip', 'pdf', 'idphoto', 'watermark', 'clip']);
 const PLACEMENTS = new Set(['header_dropdown', 'homepage_tools', 'footer_tools', 'ecosystem_nav', 'promo_banner', 'footer']);
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'];
+function isInternalHost(host) {
+  return host === 'i41.cn' || host.endsWith('.i41.cn');
+}
+// Fragments, not exact names: any referrer parameter whose name contains one of them is dropped,
+// so access_token, api_key, reset_code and X-Signature are covered as well.
+const SENSITIVE_PARAM_PARTS = ['token', 'code', 'password', 'passwd', 'key', 'secret', 'signature', 'sig', 'auth', 'session', 'email', 'phone', 'invite', 'reset'];
+const KEYWORD_KEYS = ['q', 'query', 'wd', 'word', 'keyword', 'kw', 'p'];
+const REFERRER_URL_MAX = 500;
+const KEYWORD_MAX = 100;
+const CONTROL_CHARS = /[\u0000-]/;
 const PDF_ROUTES = new Set([
   '/', '/merge-pdf', '/split-pdf', '/organize-pdf', '/rotate-pdf', '/reverse-pages',
   '/add-blank-page', '/remove-blank-pages', '/crop-pdf', '/resize-pdf', '/nup-pdf',
@@ -32,6 +42,40 @@ function attribution() {
   return result;
 }
 
+function isSensitiveParam(name) {
+  const lower = name.toLowerCase();
+  if (KEYWORD_KEYS.includes(lower)) return false;
+  return SENSITIVE_PARAM_PARTS.some(part => lower.includes(part));
+}
+
+// Reads document.referrer only: the page the visitor came from, never this page's own URL.
+function externalReferrer() {
+  const raw = document.referrer;
+  if (!raw || typeof raw !== 'string') return {};
+  let url;
+  try { url = new URL(raw); } catch { return {}; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return {};
+  const host = url.hostname.toLowerCase();
+  if (isInternalHost(host)) return { referrer_type: 'internal' };
+  if (!host || CONTROL_CHARS.test(host)) return {};
+  const result = { referrer_type: 'external', referrer_host: host };
+  url.username = '';
+  url.password = '';
+  url.hash = '';
+  // Read the keyword before stripping: 'keyword' itself contains the sensitive fragment 'key', so
+  // the denylist would otherwise remove it. Only this fixed list of names is ever read.
+  const keyword = KEYWORD_KEYS.map(key => url.searchParams.get(key)).find(value => value);
+  for (const name of [...url.searchParams.keys()]) if (isSensitiveParam(name)) url.searchParams.delete(name);
+  if (url.href.length > REFERRER_URL_MAX) url.search = '';
+  if (url.href.length > REFERRER_URL_MAX || CONTROL_CHARS.test(url.href)) return result;
+  result.referrer_url = url.href;
+  // Keywords exist only when the referring site puts one in the URL it sent us. Google, Baidu and
+  // Bing normally deliver an origin-only referrer, so most search visits have no keyword at all.
+  const trimmed = keyword ? Array.from(keyword.trim()).slice(0, KEYWORD_MAX).join('') : '';
+  if (trimmed && !CONTROL_CHARS.test(trimmed)) result.referrer_keyword = trimmed;
+  return result;
+}
+
 function send(event) {
   const body = JSON.stringify(event);
   if (navigator.sendBeacon && navigator.sendBeacon(ENDPOINT, body)) return;
@@ -58,7 +102,8 @@ function init() {
   const site = document.documentElement.dataset.i41Site || siteFromHost(location.hostname);
   if (!SITES.has(site)) return;
   let lastPagePath = cleanPath();
-  if (lastPagePath) send({ site, event: 'page_view', path: lastPagePath, ...attribution() });
+  // Only the first page_view carries the external source; later SPA views and clicks never do.
+  if (lastPagePath) send({ site, event: 'page_view', path: lastPagePath, ...attribution(), ...externalReferrer() });
   if (site === 'pdf') {
     globalThis.addEventListener?.('hashchange', () => {
       const path = cleanPath();
